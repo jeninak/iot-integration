@@ -1,0 +1,9 @@
+{
+  "name": "nuuka-iot",
+  "version": "1.0.0",
+  "description": "Nuuka -> IoT-Ticket integration",
+  "main": "send_data.js",
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}
