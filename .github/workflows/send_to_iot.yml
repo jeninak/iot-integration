@@ -1,0 +1,30 @@
+name: Send Nuuka data to IoT-Ticket
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Aja tunnin välein
+  workflow_dispatch: # mahdollisuus ajaa manuaalisesti
+
+jobs:
+  send_data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run integration
+        env:
+          IOT_USER: ${{ secrets.IOT_USER }}
+          IOT_PASS: ${{ secrets.IOT_PASS }}
+          TENANT: ${{ secrets.TENANT }}
+          DEVICE: ${{ secrets.DEVICE }}
+        run: node send_data.js
