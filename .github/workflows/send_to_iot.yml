@@ -1,4 +1,4 @@
-name: Send Nuuka data to IoT-Ticket
+name: Send API data to Iot-ticket
 
 on:
   schedule:
