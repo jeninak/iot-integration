@@ -23,12 +23,16 @@ function buildUrl() {
     return `https://helsinki-openapi.nuuka.cloud/api/v1.0/EnergyData/Daily/ListByProperty?Record=LocationName&SearchString=1000%20Hakaniemen%20kauppahalli&ReportingGroup=Electricity&StartTime=${startStr}&EndTime=${endStr}`;
 }
 
-// Convert Nuuka .NET style timestamp to JS Date
+// Convert Nuuka .NET style timestamp to JS Date if possible
 function parseNuukaDate(nuukaTs) {
-    // nuukaTs example: "/Date(1679870400000)/"
+    if (!nuukaTs) return new Date(); // Fallback: current date if null/undefined
     const match = /\/Date\((\d+)\)\//.exec(nuukaTs);
-    if (!match) throw new Error("Invalid Nuuka timestamp: " + nuukaTs);
-    return new Date(Number(match[1]));
+    if (match) return new Date(Number(match[1]));
+    // If not .NET format, try normal Date parsing
+    const parsed = new Date(nuukaTs);
+    if (!isNaN(parsed)) return parsed;
+    // Final fallback: current date
+    return new Date();
 }
 
 // Main function to fetch data and send it to IoT-Ticket
@@ -45,9 +49,14 @@ async function run() {
 
         // Take the latest entry
         const latest = data[data.length - 1];
+
+        // Ensure Value exists and is numeric
+        const value = Number(latest.Value);
+        if (isNaN(value)) throw new Error("Latest Value is not a number");
+
         const payload = {
-            electricity_kwh: Number(latest.Value),               // Electricity value
-            ts: parseNuukaDate(latest.Timestamp).toISOString()  // Correctly parsed timestamp
+            electricity_kwh: value,                // Electricity value
+            ts: parseNuukaDate(latest.Timestamp).toISOString()  // Safe timestamp
         };
 
         console.log("Sending to IoT-Ticket:", payload);
