@@ -1,94 +1,68 @@
-// send_data_nuuka_safe.js
-// Node.js script to fetch latest hourly electricity data from Nuuka API
-// and send it to IoT-Ticket telemetry endpoint safely
+// nuuka_latest_energy.js
+// Fetches the newest hourly energy data from Nuuka Open API
 
 const axios = require("axios");
 
-// IoT-Ticket credentials from environment variables
-const USER = process.env.IOT_USER;    // IoT-Ticket username (DEVICE_ID@TENANT)
-const PASS = process.env.IOT_PASS;    // IoT-Ticket device password
-const TENANT = process.env.TENANT;    // IoT-Ticket tenant ID
-const DEVICE = process.env.DEVICE;    // IoT-Ticket device ID
+// --- Config ---
+const CUSTOMER = "Helsinki"; // Customer parameter
+const TARGET_LOCATION = "1000 Hakaniemen Kauppahalli"; // Exact LocationName
+const REPORTING_GROUP = "Electricity"; // Could be Heating, etc.
+const DAYS_BACK = 1; // How many past days to fetch
 
-// IoT-Ticket telemetry endpoint
-const IOT_URL = `https://cloud.iot-ticket.com/http-adapter/telemetry/${TENANT}/${DEVICE}`;
+// --- Nuuka API Endpoints ---
+const PROPERTY_LIST_URL = `https://helsinki-openapi.nuuka.cloud/api/v1.0/Property/List?Customer=${CUSTOMER}`;
 
-// Nuuka API endpoints
-const PROPERTY_LIST_URL = "https://helsinki-openapi.nuuka.cloud/api/v1.0/Property/List?Customer=Helsinki";
-
-// Set the target property you want to fetch
-const TARGET_LOCATION = "1000 Hakaniemen Kauppahalli"; // Must match exactly LocationName from Property/List
-
-// Convert Nuuka timestamp like "/Date(1679870400000)/" to JS Date
-function parseNuukaDate(nuukaTs) {
-    const match = /\/Date\((\d+)\)\//.exec(nuukaTs);
-    if (!match) {
-        console.warn("No valid Nuuka timestamp, using current time");
-        return new Date(); // fallback
-    }
-    return new Date(Number(match[1]));
+// Convert Nuuka timestamp /Date(1679870400000)/ to JS Date
+function parseNuukaDate(ts) {
+    const match = /\/Date\((\d+)\)\//.exec(ts);
+    return match ? new Date(Number(match[1])) : new Date();
 }
 
-// Get the correct property LocationName
-async function getPropertyLocation() {
-    try {
-        const res = await axios.get(PROPERTY_LIST_URL, { timeout: 10000 });
-        const properties = res.data;
-        const match = properties.find(p => p.LocationName === TARGET_LOCATION);
-        if (!match) throw new Error(`Property "${TARGET_LOCATION}" not found`);
-        return match.LocationName;
-    } catch (err) {
-        throw new Error("Failed to fetch property list: " + err.message);
-    }
-}
-
-// Build hourly energy data URL
-function buildHourlyUrl(searchString) {
+// Build URL for Hourly Energy Data
+function buildHourlyUrl(locationName) {
     const end = new Date();
     const start = new Date();
-    start.setDate(end.getDate() - 1); // last 1 day
+    start.setDate(end.getDate() - DAYS_BACK);
 
     const startStr = start.toISOString().split("T")[0];
     const endStr = end.toISOString().split("T")[0];
 
-    return `https://helsinki-openapi.nuuka.cloud/api/v1.0/EnergyData/Hourly/ListByProperty?Customer=Helsinki&Record=LocationName&SearchString=${encodeURIComponent(searchString)}&ReportingGroup=Electricity&StartTime=${startStr}&EndTime=${endStr}`;
+    return `https://helsinki-openapi.nuuka.cloud/api/v1.0/EnergyData/Hourly/ListByProperty?Customer=${CUSTOMER}&Record=LocationName&SearchString=${encodeURIComponent(locationName)}&ReportingGroup=${REPORTING_GROUP}&StartTime=${startStr}&EndTime=${endStr}`;
 }
 
 // Main function
 async function run() {
     try {
-        console.log("Fetching property list from Nuuka...");
-        const propertyName = await getPropertyLocation();
-        console.log("Found property:", propertyName);
+        console.log("Fetching property list...");
+        const propRes = await axios.get(PROPERTY_LIST_URL, { timeout: 10000 });
+        const properties = propRes.data;
 
-        const hourlyUrl = buildHourlyUrl(propertyName);
+        const property = properties.find(p => p.LocationName === TARGET_LOCATION);
+        if (!property) {
+            throw new Error(`Property "${TARGET_LOCATION}" not found in Property/List`);
+        }
+        console.log("Found property:", property.LocationName);
+
+        const hourlyUrl = buildHourlyUrl(property.LocationName);
         console.log("Fetching hourly energy data...");
-        const res = await axios.get(hourlyUrl, { timeout: 10000 });
-        const data = res.data;
+        const dataRes = await axios.get(hourlyUrl, { timeout: 10000 });
+        const data = dataRes.data;
 
         if (!data || data.length === 0) {
-            console.warn("No energy data returned for this property. Skipping.");
+            console.warn("No energy data returned for this property.");
             return;
         }
 
-        // Take the latest datapoint
         const latest = data[data.length - 1];
-        const payload = {
-            electricity_kwh: Number(latest.Value),
-            ts: parseNuukaDate(latest.Timestamp).toISOString()
-        };
+        const latestTime = parseNuukaDate(latest.Timestamp);
 
-        console.log("Sending to IoT-Ticket:", payload);
-
-        await axios.put(IOT_URL, payload, {
-            auth: { username: USER, password: PASS }
-        });
-
-        console.log("Success!");
+        console.log("Latest energy data:");
+        console.log(`Time: ${latestTime.toISOString()}`);
+        console.log(`Electricity kWh: ${latest.Value}`);
     } catch (err) {
         console.error("Error:", err.message);
     }
 }
 
-// Run the script
+// Run
 run();
