@@ -23,6 +23,14 @@ function buildUrl() {
     return `https://helsinki-openapi.nuuka.cloud/api/v1.0/EnergyData/Daily/ListByProperty?Record=LocationName&SearchString=1000%20Hakaniemen%20kauppahalli&ReportingGroup=Electricity&StartTime=${startStr}&EndTime=${endStr}`;
 }
 
+// Convert Nuuka .NET style timestamp to JS Date
+function parseNuukaDate(nuukaTs) {
+    // nuukaTs example: "/Date(1679870400000)/"
+    const match = /\/Date\((\d+)\)\//.exec(nuukaTs);
+    if (!match) throw new Error("Invalid Nuuka timestamp: " + nuukaTs);
+    return new Date(Number(match[1]));
+}
+
 // Main function to fetch data and send it to IoT-Ticket
 async function run() {
     try {
@@ -38,8 +46,8 @@ async function run() {
         // Take the latest entry
         const latest = data[data.length - 1];
         const payload = {
-            electricity_kwh: Number(latest.Value),              // Electricity value
-            ts: new Date(latest.Timestamp).toISOString()       // Timestamp in ISO format
+            electricity_kwh: Number(latest.Value),               // Electricity value
+            ts: parseNuukaDate(latest.Timestamp).toISOString()  // Correctly parsed timestamp
         };
 
         console.log("Sending to IoT-Ticket:", payload);
