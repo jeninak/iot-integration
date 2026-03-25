@@ -1,6 +1,6 @@
-// send_data_nuuka.js
+// send_data_nuuka_safe.js
 // Node.js script to fetch latest hourly electricity data from Nuuka API
-// and send it to IoT-Ticket telemetry endpoint
+// and send it to IoT-Ticket telemetry endpoint safely
 
 const axios = require("axios");
 
@@ -19,21 +19,34 @@ const PROPERTY_LIST_URL = "https://helsinki-openapi.nuuka.cloud/api/v1.0/Propert
 // Set the target property you want to fetch
 const TARGET_LOCATION = "1000 Hakaniemen Kauppahalli"; // Must match exactly LocationName from Property/List
 
-// Function to get PropertyName / LocationName
-async function getPropertyLocation() {
-    const res = await axios.get(PROPERTY_LIST_URL, { timeout: 10000 });
-    const properties = res.data;
-
-    const match = properties.find(p => p.LocationName === TARGET_LOCATION);
-    if (!match) throw new Error(`Property "${TARGET_LOCATION}" not found in Property/List`);
-    return match.LocationName; // We'll use this as SearchString
+// Convert Nuuka timestamp like "/Date(1679870400000)/" to JS Date
+function parseNuukaDate(nuukaTs) {
+    const match = /\/Date\((\d+)\)\//.exec(nuukaTs);
+    if (!match) {
+        console.warn("No valid Nuuka timestamp, using current time");
+        return new Date(); // fallback
+    }
+    return new Date(Number(match[1]));
 }
 
-// Function to build hourly energy data URL
+// Get the correct property LocationName
+async function getPropertyLocation() {
+    try {
+        const res = await axios.get(PROPERTY_LIST_URL, { timeout: 10000 });
+        const properties = res.data;
+        const match = properties.find(p => p.LocationName === TARGET_LOCATION);
+        if (!match) throw new Error(`Property "${TARGET_LOCATION}" not found`);
+        return match.LocationName;
+    } catch (err) {
+        throw new Error("Failed to fetch property list: " + err.message);
+    }
+}
+
+// Build hourly energy data URL
 function buildHourlyUrl(searchString) {
     const end = new Date();
     const start = new Date();
-    start.setDate(end.getDate() - 2); // Last 2 days
+    start.setDate(end.getDate() - 1); // last 1 day
 
     const startStr = start.toISOString().split("T")[0];
     const endStr = end.toISOString().split("T")[0];
@@ -53,13 +66,16 @@ async function run() {
         const res = await axios.get(hourlyUrl, { timeout: 10000 });
         const data = res.data;
 
-        if (!data || data.length === 0) throw new Error("No energy data received");
+        if (!data || data.length === 0) {
+            console.warn("No energy data returned for this property. Skipping.");
+            return;
+        }
 
         // Take the latest datapoint
         const latest = data[data.length - 1];
         const payload = {
             electricity_kwh: Number(latest.Value),
-            ts: new Date().toISOString() // Use current time as timestamp
+            ts: parseNuukaDate(latest.Timestamp).toISOString()
         };
 
         console.log("Sending to IoT-Ticket:", payload);
